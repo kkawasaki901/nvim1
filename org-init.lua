@@ -283,15 +283,7 @@ require("lazy").setup(
               vim.cmd("Neotree toggle")
             end,
           },
-          {
-            pane = 2,
-            icon = "",
-            key = "j",
-            desc = "json focus log",
-            action = function()
-              vim.cmd("OpenFocusJsonInVSCode")
-            end,
-          }
+
         },
       }
     }
