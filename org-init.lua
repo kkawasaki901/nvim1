@@ -87,77 +87,7 @@ end
 local english_words_path = string.format("%s/%s", english_words_folfer, english_file_name)
 
 
-
-
-
--- ########################
--- TODO: タスク管理用のキーマッピング
--- 使い方
--- 1. チェックボックス付きの行で実行すると、完了/未完了を切り替え
--- 2. チェックボックス無しの行で実行すると、先頭に未完了チェックボックスを追加
--- ########################
-local function toggle_task()
-  local line = vim.api.nvim_get_current_line()
-  -- ① 未完了 → 完了
-  if line:match("%[ %]") then
-    line = line:gsub("%[ %]", "[x]", 1)
-  -- ② 完了 → 未完了
-  elseif line:match("%[[xX]%]") then
-    line = line:gsub("%[[xX]%]", "[ ]", 1)
-  -- ③ チェックボックスが無い → 先頭に追加
-  else
-    -- すでに "- " や "* " があればそれを活かす
-    if line:match("^%s*[-*]%s+") then
-      line = line:gsub("^%s*([-*]%s+)", "%1[ ] ", 1)
-    else
-      line = "- [ ] " .. line
-    end
-  end
-  vim.api.nvim_set_current_line(line)
-end
-
-vim.keymap.set("n", "<leader>tt", toggle_task, { desc = "Toggle / Add task" })
-
-
-
-
-
-
--- ########################
--- vim-plugを使う場合の設定例
--- ########################
-
--- vim.cmd([[
--- call plug#begin()
--- Plug 'nvim-orgmode/orgmode'
--- call plug#end()
--- ]])
-
--- require('orgmode').setup({
---   org_agenda_files = 'C:/Users/kawasaki/Desktop/org/**/*',
---   org_default_notes_file = 'C:/Users/kawasaki/Desktop/org/refile.org',
--- })
-
-
--- ########################
--- その他の共通設定
--- ########################
-
--- <leader>e で netrw (:Explore)
 --[[
-vim.keymap.set("n", "<leader>e", ":Explore<CR>", {
-  noremap = true,
-  silent = true,
-  desc = "Open netrw (Explore)"
-})
---]]
-
--- #########################
--- カスタムコマンド選択メニューの例
--- #########################
-
-
-
 -- ########################
 -- TODO: 英単語関数の補助関数
 -- ########################
@@ -236,6 +166,7 @@ function pick_lines(path, n)
   return out
 end
 
+--]]
 
 
 -- #########################
@@ -321,49 +252,16 @@ require("lazy").setup(
   {
     "lukas-reineke/headlines.nvim",
     ft = { "org", "markdown" }, -- 必要なときだけロード
+
+  },
+
+  {
+  "kkawasaki901/english_word",
     config = function()
-      -- ===== highlight 定義（bg維持 + 文字強調）=====
-    
-      --[[
-      -- Headline1: 赤系背景 + 明るい文字
-      vim.api.nvim_set_hl(0, "Headline1", {
-        bg = "#FF5F5F",
-        fg = "#FFFFFF", -- 白で最大可読性
-        bold = true,
-      })
-    
-      -- Headline2: 青系背景 + 明るい文字
-      vim.api.nvim_set_hl(0, "Headline2", {
-        bg = "#5FAFFF",
-        fg = "#FFFFFF", -- 背景が強いので白が安定
-        bold = true,
-      })
-    
-      -- CodeBlock: 緑系背景 + 落ち着いた暗文字（眩しさ回避）
-      vim.api.nvim_set_hl(0, "CodeBlock", {
-        bg = "#5FFF87",
-        fg = "#1C1C1C", -- ダーク文字でコードを読みやすく
-      })
-    
-      -- Dash: オレンジ強調（そのまま）
-      vim.api.nvim_set_hl(0, "Dash", {
-        fg = "#D19A66",
-        bold = true,
-      })
-      --]]
-    
-    
-      -- ===== headlines.nvim 設定 =====
-      --[[
-      require("headlines").setup({
-        org = {
-          -- headline_highlights = { "Headline1", "Headline2", "Headline3", "Headline4" },
-          -- codeblock_highlight = "CodeBlock",
-          -- dash_highlight = "Dash",
-        },
-      })
-      --]]
-    end,
+      require("english_word").setup{
+        path = english_words_path
+      }
+    end
   },
 
   -- HACK: snacks.nvimプラグイン（ダッシュボード）
@@ -405,8 +303,7 @@ require("lazy").setup(
           --]]
 
           {
-            title = pick_lines(string.format("%s", english_words_path), 5),
-
+            title = require("english_word").picklines()
           },
           
           {
@@ -636,7 +533,24 @@ require("lazy").setup(
     end,
 
   },
-  
+
+  -- HACK: 自作プラグイン: タスク切り替え
+  {
+    "kkawasaki901/toggle_task",
+    --[[
+    -- キーマップを変えたいならここで変える。デフォルトは<leader>tt
+    opts = {
+      keymap = "<leader>tt",
+    },
+    --]]
+
+    config = function()
+      require("toggle_task").setup{}
+    end,
+
+  },
+
+
 
 }, -- end of plugins table
 
