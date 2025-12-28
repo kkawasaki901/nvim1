@@ -87,87 +87,6 @@ end
 local english_words_path = string.format("%s/%s", english_words_folfer, english_file_name)
 
 
---[[
--- ########################
--- TODO: 英単語関数の補助関数
--- ########################
-
-local leter_num = 25
-
-local function space_num(moji)
-  -- nに応じたスペースを返す関数
-  local s = ""
-  for i = 1, leter_num - vim.fn.strchars(moji) do
-    s = s .. " "
-  end
-  
-  return (moji .. s)
-end
-
-
--- #########################
--- TODO: 英単語表示機能用の関数
--- #########################
-
-function pick_lines(path, n)
--- 指定されたファイルから、コロンを含む行をランダムにn行選んで返す関数
--- path: ファイルパス
--- n: 選ぶ行数（デフォルト5）
-  n = n or 5
-
-  local ok, raw = pcall(vim.fn.readfile, path)
-  if not ok then
-    return nil
-  end
-
-  -- 最初の空白行までをスキップ
-  local started = false
-  local candidates = {}
-
-  for _, line in ipairs(raw) do
-    if not started then
-      if line:match("^%s*$") then
-        started = true
-      end
-    else
-      local s = line:gsub("^%s+", ""):gsub("%s+$", "")
-      if s ~= "" and s:find(":", 1, true) then
-        table.insert(candidates, s)
-      end
-    end
-  end
-
-  if #candidates == 0 then
-    return nil
-  end
-
-  -- シャッフル（Fisher–Yates）
-  math.randomseed(vim.uv.hrtime())
-  for i = #candidates, 2, -1 do
-    local j = math.random(i)
-    candidates[i], candidates[j] = candidates[j], candidates[i]
-  end
-
-  local out1 = {}
-  local take = math.min(n, #candidates)
-  for i = 1, take do
-    table.insert(out1, candidates[i])
-  end
-
-  local out2 = {}
-  for _, line in ipairs(out1) do
-    local en, ja = line:match("^(.-)%s*:%s*(.-)%s*$")
-    if en and ja then
-      table.insert(out2, string.format("%s%s",space_num(en), ja))
-    end
-  end
-
-  out = table.concat(out2, "\n")
-  return out
-end
-
---]]
-
 
 -- #########################
 -- TODO: lazy.nvimのインストール
@@ -255,19 +174,35 @@ require("lazy").setup(
 
   },
 
-  {
+{
   "kkawasaki901/english_word",
-    config = function()
-      require("english_word").setup{
-        path = english_words_path
-      }
-    end
-  },
+  config = function()
+    require("english_word").setup({
+      path = english_words_path,
+    })
+  end,
+},
+
 
   -- HACK: snacks.nvimプラグイン（ダッシュボード）
   {
     "folke/snacks.nvim",
-    opts = {
+     opts = function()
+        -- dashboardに出す行（デフォルト）
+     local lines = { "english_word not loaded" }
+ 
+     local ok, ew = pcall(require, "english_word")
+     if ok then
+       -- pick_lines の戻り値が「文字列1つ」でも「文字列配列」でも吸収する
+       local v = ew.pick_lines(english_words_path, 5) -- ← 引数が必要な想定
+       if type(v) == "table" then
+         lines = v
+       elseif v ~= nil then
+         lines = { tostring(v) }
+       end
+     end
+
+    return{
       dashboard = 
       {
         enabled = true,
@@ -301,11 +236,16 @@ require("lazy").setup(
             cmd = "Get-Date -Format 'yyyy/MM/dd (ddd)'; sleep 99999",
           },
           --]]
-
-          {
-            title = require("english_word").picklines()
-          },
           
+        {
+          title = lines,
+        },
+
+        --[[
+          {
+            title = require("english_word").pick_lines()
+          },
+        --]]
           {
             title = "\n────────────────────────────\n",
           },
@@ -353,8 +293,9 @@ require("lazy").setup(
             end,
           }
         },
-      },
-    },
+      }
+    }
+  end,
       config = function(_, opts)
         require("snacks").setup(opts)
     
