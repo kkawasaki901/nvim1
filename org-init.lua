@@ -1,0 +1,928 @@
+-- ########################
+-- TODO: 共通設定
+-- ########################
+
+-- leaderキーをスペースに設定
+vim.g.mapleader = " "
+vim.cmd("set number")
+
+-- カーソル行を中央に表示する関数（端末バッファやnofileバッファでは実行しない）
+-- toggleTermを使ったときの"modifiable is off"エラー対策らしいけど、よくわかってない
+local function safe_normal(cmd)
+  local bt = vim.bo.buftype
+  if bt == "terminal" or bt == "nofile" then
+    return
+  end
+  vim.cmd("normal! " .. cmd)
+end
+safe_normal("zz")
+
+
+-- シェルをPowerShellに設定
+local sys = vim.loop.os_uname().sysname
+if sys == "Windows_NT" then
+  vim.o.shell = "powershell"
+  vim.o.shellcmdflag = "-NoProfile -Command"
+  vim.o.shellquote = ""
+  vim.o.shellxquote = ""
+end
+
+-- pane/window move with Ctrl-h/j/k/l
+vim.keymap.set("n", "<C-h>", "<C-w>h", { desc = "Move to left window" })
+vim.keymap.set("n", "<C-j>", "<C-w>j", { desc = "Move to lower window" })
+vim.keymap.set("n", "<C-k>", "<C-w>k", { desc = "Move to upper window" })
+vim.keymap.set("n", "<C-l>", "<C-w>l", { desc = "Move to right window" })
+
+
+
+
+
+-- ########################
+-- TODO: パソコンごとに書き換えるかもしれない設定
+-- ########################
+
+-- ホームディレクトリのパス取得
+local home = vim.fn.expand("~")
+
+-- orgとobsidianのファイルパス設定
+local org_path = string.format("%s/org", home)
+local obsidian_path = string.format("%s/obsidian/org_obsidian", home)
+
+
+
+-- ########################
+-- TODO: コンフィグごとに変える設定
+-- ########################
+
+-- init.luaのパス
+local init_lua_path = vim.fn.stdpath("config") .. "/org-init.lua"
+
+-- これをコンフィグごとに変える
+local config_data_folder_name = "org-data"
+
+-- lazy.nvim用のデータ保存フォルダパス
+local lazy_data_path = string.format("%s/%s", vim.fn.stdpath("data"), config_data_folder_name)
+
+-- 上記フォルダがなければ自動で作る
+if vim.fn.isdirectory(lazy_data_path) == 0 then
+  vim.fn.mkdir(lazy_data_path, "p")
+end
+
+-- ########################
+-- TODO: 気まぐれで定期的に書き換える
+-- ########################
+
+-- このファイル名を気まぐれで変更する
+local english_file_name = "words1.txt"
+
+-- 英単語ファイルを入れておくフォルダのパス設定
+local english_words_folfer = string.format("%s/english_words", vim.fn.stdpath("config"))
+
+-- 上記フォルダがなければ自動で作る
+if vim.fn.isdirectory(english_words_folfer) == 0 then
+  vim.fn.mkdir(english_words_folfer, "p")
+end
+
+-- テキストファイルのパス
+local english_words_path = string.format("%s/%s", english_words_folfer, english_file_name)
+
+
+
+
+
+-- ########################
+-- TODO: タスク管理用のキーマッピング
+-- 使い方
+-- 1. チェックボックス付きの行で実行すると、完了/未完了を切り替え
+-- 2. チェックボックス無しの行で実行すると、先頭に未完了チェックボックスを追加
+-- ########################
+local function toggle_task()
+  local line = vim.api.nvim_get_current_line()
+  -- ① 未完了 → 完了
+  if line:match("%[ %]") then
+    line = line:gsub("%[ %]", "[x]", 1)
+  -- ② 完了 → 未完了
+  elseif line:match("%[[xX]%]") then
+    line = line:gsub("%[[xX]%]", "[ ]", 1)
+  -- ③ チェックボックスが無い → 先頭に追加
+  else
+    -- すでに "- " や "* " があればそれを活かす
+    if line:match("^%s*[-*]%s+") then
+      line = line:gsub("^%s*([-*]%s+)", "%1[ ] ", 1)
+    else
+      line = "- [ ] " .. line
+    end
+  end
+  vim.api.nvim_set_current_line(line)
+end
+
+vim.keymap.set("n", "<leader>tt", toggle_task, { desc = "Toggle / Add task" })
+
+
+
+
+
+
+-- ########################
+-- vim-plugを使う場合の設定例
+-- ########################
+
+-- vim.cmd([[
+-- call plug#begin()
+-- Plug 'nvim-orgmode/orgmode'
+-- call plug#end()
+-- ]])
+
+-- require('orgmode').setup({
+--   org_agenda_files = 'C:/Users/kawasaki/Desktop/org/**/*',
+--   org_default_notes_file = 'C:/Users/kawasaki/Desktop/org/refile.org',
+-- })
+
+
+-- ########################
+-- その他の共通設定
+-- ########################
+
+-- <leader>e で netrw (:Explore)
+--[[
+vim.keymap.set("n", "<leader>e", ":Explore<CR>", {
+  noremap = true,
+  silent = true,
+  desc = "Open netrw (Explore)"
+})
+--]]
+
+-- #########################
+-- カスタムコマンド選択メニューの例
+-- #########################
+
+
+
+-- ########################
+-- TODO: 英単語関数の補助関数
+-- ########################
+
+local leter_num = 25
+
+local function space_num(moji)
+  -- nに応じたスペースを返す関数
+  local s = ""
+  for i = 1, leter_num - vim.fn.strchars(moji) do
+    s = s .. " "
+  end
+  
+  return (moji .. s)
+end
+
+
+-- #########################
+-- TODO: 英単語表示機能用の関数
+-- #########################
+
+function pick_lines(path, n)
+-- 指定されたファイルから、コロンを含む行をランダムにn行選んで返す関数
+-- path: ファイルパス
+-- n: 選ぶ行数（デフォルト5）
+  n = n or 5
+
+  local ok, raw = pcall(vim.fn.readfile, path)
+  if not ok then
+    return nil
+  end
+
+  -- 最初の空白行までをスキップ
+  local started = false
+  local candidates = {}
+
+  for _, line in ipairs(raw) do
+    if not started then
+      if line:match("^%s*$") then
+        started = true
+      end
+    else
+      local s = line:gsub("^%s+", ""):gsub("%s+$", "")
+      if s ~= "" and s:find(":", 1, true) then
+        table.insert(candidates, s)
+      end
+    end
+  end
+
+  if #candidates == 0 then
+    return nil
+  end
+
+  -- シャッフル（Fisher–Yates）
+  math.randomseed(vim.uv.hrtime())
+  for i = #candidates, 2, -1 do
+    local j = math.random(i)
+    candidates[i], candidates[j] = candidates[j], candidates[i]
+  end
+
+  local out1 = {}
+  local take = math.min(n, #candidates)
+  for i = 1, take do
+    table.insert(out1, candidates[i])
+  end
+
+  local out2 = {}
+  for _, line in ipairs(out1) do
+    local en, ja = line:match("^(.-)%s*:%s*(.-)%s*$")
+    if en and ja then
+      table.insert(out2, string.format("%s%s",space_num(en), ja))
+    end
+  end
+
+  out = table.concat(out2, "\n")
+  return out
+end
+
+-- #########################
+-- TODO: todoの一覧表示プラグインの自作
+-- #########################
+-- === TodoPane: scan all visible panes (current tabpage), only *.lua ===
+
+local cfg = {
+  width = 80
+}
+local state = {
+  win = nil,
+  buf = nil,
+  items = {}, -- display_line -> {src_buf, lnum}
+  ns = vim.api.nvim_create_namespace("todo_pane"),
+}
+local function is_valid_win(win) return win and vim.api.nvim_win_is_valid(win) end
+local function is_valid_buf(buf) return buf and vim.api.nvim_buf_is_valid(buf) end
+local function buf_is_lua(buf)
+  local name = vim.api.nvim_buf_get_name(buf) or ""
+  return name:lower():sub(-4) == ".lua"
+end
+local function ensure_pane()
+  if not is_valid_buf(state.buf) then
+    state.buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_name(state.buf, "TodoPane")
+    vim.bo[state.buf].buftype = "nofile"
+    vim.bo[state.buf].bufhidden = "wipe"
+    vim.bo[state.buf].swapfile = false
+    vim.bo[state.buf].modifiable = false
+    vim.bo[state.buf].filetype = "todopane"
+  end
+  if not is_valid_win(state.win) then
+    vim.cmd("topleft vsplit")
+    state.win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_width(state.win, cfg.width)
+    vim.api.nvim_win_set_buf(state.win, state.buf)
+    vim.wo[state.win].number = false
+    vim.wo[state.win].relativenumber = false
+    vim.wo[state.win].wrap = false
+    vim.wo[state.win].signcolumn = "no"
+    vim.wo[state.win].cursorline = true
+    local function jump_under_cursor()
+      local l = vim.api.nvim_win_get_cursor(state.win)[1]
+      local it = state.items[l]
+      if not it then return end
+      if not is_valid_buf(it.src_buf) then return end
+      -- 既にどこかのウィンドウで表示されているなら、そこへ移動してジャンプ
+      local target_win = nil
+      for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if w ~= state.win and vim.api.nvim_win_get_buf(w) == it.src_buf then
+          target_win = w
+          break
+        end
+      end
+      if target_win then
+        vim.api.nvim_set_current_win(target_win)
+        vim.api.nvim_win_set_cursor(target_win, { it.lnum, 0 })
+      else
+        -- 万一ウィンドウに無ければ、右側のどこかで開く
+        -- （基本は “開いているpane” 対象なのでここには来ないはず）
+        vim.cmd("wincmd l")
+        vim.api.nvim_set_current_buf(it.src_buf)
+        vim.api.nvim_win_set_cursor(0, { it.lnum, 0 })
+      end
+      vim.cmd("normal! zz")
+    end
+    local opts = { noremap = true, silent = true, buffer = state.buf }
+    vim.keymap.set("n", "<CR>", jump_under_cursor, opts)
+    vim.keymap.set("n", "o", jump_under_cursor, opts)
+    vim.keymap.set("n", "q", function()
+      if is_valid_win(state.win) then vim.api.nvim_win_close(state.win, true) end
+      state.win = nil
+    end, opts)
+    vim.keymap.set("n", "r", function() vim.cmd("TodoPaneRefresh") end, opts)
+    -- クリックでジャンプ（:normal! <LeftMouse> は使わない）
+    vim.keymap.set("n", "<LeftMouse>", function()
+      local mp = vim.fn.getmousepos()
+      if not state.win or mp.winid ~= state.win then return end
+      vim.api.nvim_win_set_cursor(state.win, { mp.line, math.max(mp.column - 1, 0) })
+      jump_under_cursor()
+    end, opts)
+  else
+    vim.api.nvim_win_set_buf(state.win, state.buf)
+  end
+end
+
+-- TodoPane 用ハイライト
+vim.api.nvim_set_hl(0, "TodoPaneTODO", {
+  fg = "#FF9E64", -- オレンジ系
+  bold = true,
+})
+
+vim.api.nvim_set_hl(0, "TodoPaneHACK", {
+  fg = "#F7768E", -- 赤系
+  bold = true,
+})
+
+vim.api.nvim_set_hl(0, "TodoPaneComment", {
+  fg = "#7AA2F7", -- コメント用（任意）
+})
+
+
+local function apply_highlights(buf, display_lines)
+  vim.api.nvim_buf_clear_namespace(buf, state.ns, 0, -1)
+
+  for i, line in ipairs(display_lines) do
+    local l = i - 1
+
+    -- ① コメント全体を先に薄く（最後にやると todo/hack を覆う）
+    local cs = line:find("%-%-")
+    if cs then
+      vim.api.nvim_buf_add_highlight(
+        buf,
+        state.ns,
+        "TodoPaneComment",
+        l,
+        cs - 1,
+        -1
+      )
+    end
+
+    -- ② todo
+    local s, e = line:find("TODO")
+    if s then
+      vim.api.nvim_buf_add_highlight(
+        buf,
+        state.ns,
+        "TodoPaneTODO",
+        l,
+        s - 1,
+        e
+      )
+    end
+
+    -- ③ hack
+    s, e = line:find("HACK")
+    if s then
+      vim.api.nvim_buf_add_highlight(
+        buf,
+        state.ns,
+        "TodoPaneHACK",
+        l,
+        s - 1,
+        e
+      )
+    end
+  end
+end
+
+
+
+local function match_line(text)
+  local has_todo = (text:find("TODO", 1, true) ~= nil) or (text:find("HACK", 1, true) ~= nil)
+  local is_lua_comment = text:find("-- ", 1, true) ~= nil
+  return has_todo and is_lua_comment
+end
+local function refresh()
+  ensure_pane()
+  -- 現在のタブの「開いているウィンドウ（pane）」を全部対象にする
+  local wins = vim.api.nvim_tabpage_list_wins(0)
+  -- 重複除去しつつ、*.lua のバッファだけ集める
+  local seen = {}
+  local bufs = {}
+  for _, w in ipairs(wins) do
+    local b = vim.api.nvim_win_get_buf(w)
+    if b ~= state.buf and is_valid_buf(b) and not seen[b] and buf_is_lua(b) then
+      seen[b] = true
+      table.insert(bufs, b)
+    end
+  end
+  local items, display = {}, {}
+  for _, b in ipairs(bufs) do
+    local name = vim.api.nvim_buf_get_name(b)
+    local short = (name ~= "" and vim.fn.fnamemodify(name, ":t") or "[No Name]")
+    local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+    for lnum, line in ipairs(lines) do
+      if match_line(line) then
+        -- 表示: filename:lnum  text
+        display[#display + 1] = string.format("%s:%d  %s", short, lnum, line)
+        items[#items + 1] = { src_buf = b, lnum = lnum }
+      end
+    end
+  end
+  if #display == 0 then
+    display = {
+      "TodoPane: no matches in visible *.lua panes",
+    }
+  end
+  state.items = items
+  vim.bo[state.buf].modifiable = true
+  vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, display)
+  vim.bo[state.buf].modifiable = false
+  apply_highlights(state.buf, display)
+end
+local function open()
+  ensure_pane()
+  refresh()
+end
+local function toggle()
+  if is_valid_win(state.win) then
+    vim.api.nvim_win_close(state.win, true)
+    state.win = nil
+  else
+    open()
+  end
+end
+vim.api.nvim_create_user_command("TodoPaneOpen", open, {})
+vim.api.nvim_create_user_command("TodoPaneToggle", toggle, {})
+vim.api.nvim_create_user_command("TodoPaneRefresh", refresh, {})
+-- 保存したら自動更新（TodoPaneが開いてる時だけ）
+vim.api.nvim_create_autocmd("BufWritePost", {
+  callback = function()
+    if is_valid_win(state.win) then refresh() end
+  end,
+})
+-- 好きなキーに
+vim.keymap.set("n", "<leader>tp", "<cmd>TodoPaneToggle<cr>", { desc = "TodoPane (visible lua panes)" })
+vim.keymap.set("n", "<leader>tr", "<cmd>TodoPaneRefresh<cr>", { desc = "TodoPane refresh" })
+
+local function open_config_and_todopane()
+  -- 設定ファイルを開く（必要に応じてパス変更）
+  vim.cmd("edit " .. string.format("%s", init_lua_path))
+
+  -- バッファが切り替わったあとに TodoPane を開く
+  -- （即実行だと win/buf 状態が不安定になることがあるため schedule）
+  vim.schedule(function()
+    local edit_win = vim.api.nvim_get_current_win() -- いまの編集窓を覚える
+    vim.cmd("TodoPaneToggle")
+    -- TodoPane がフォーカスを奪っても、編集窓に戻してから Aerial
+    if vim.api.nvim_win_is_valid(edit_win) then
+      vim.api.nvim_set_current_win(edit_win)
+    end
+    -- やっぱり下記あんまり意味ないからコメントアウト
+    -- vim.cmd("AerialToggle!")
+  end)
+end
+
+-- コマンド化
+vim.api.nvim_create_user_command(
+  "ConfigWithTodo",
+  open_config_and_todopane,
+  {}
+)
+
+-- キーマップ例
+vim.keymap.set(
+  "n",
+  "<leader>ct",
+  open_config_and_todopane,
+  { desc = "Open config and TodoPane" }
+)
+
+
+
+-- #########################
+-- TODO: lazy.nvimのインストール
+-- #########################
+local lazypath = string.format("%s/lazy/lazy.nvim", lazy_data_path)
+local lazyroot = string.format("%s/lazy", lazy_data_path)
+if not (vim.uv or vim.loop).fs_stat(lazypath) then
+  vim.fn.system({
+    "git",
+    "clone",
+    "--filter=blob:none",
+    "https://github.com/folke/lazy.nvim.git",
+    "--branch=stable", -- latest stable release
+    lazypath,
+  })
+end
+vim.opt.rtp:prepend(lazypath)
+
+-- #########################
+-- TODO: lazy.nvimでプラグイン管理
+-- #########################
+
+require("lazy").setup(
+{
+  -- orgmodeプラグイン
+  {
+    "nvim-orgmode/orgmode",
+    config = function()
+      require('orgmode').setup({
+        org_agenda_files = string.format('%s/**/*', org_path),
+        org_default_notes_file = string.format('%s/refile.org', org_path),
+      })
+    end,
+  },
+
+  -- HACK: catppuccinカラースキームプラグイン
+  {
+    "catppuccin/nvim",
+    name = "catppuccin", -- colorscheme名と一致させる
+    priority = 1000,    -- 最優先で読み込ませる（超重要）
+    config = function()
+      vim.cmd.colorscheme("catppuccin-mocha")
+    end,
+  },
+
+  -- HACK: org-bullets.nvimプラグイン（箇条書き記号の装飾）
+  {
+    "akinsho/org-bullets.nvim", config = function()
+    require("org-bullets").setup {
+      concealcursor = false, -- If false then when the cursor is on a line underlying characters are visible
+      symbols = {
+        -- list symbol
+        list = "•",
+        -- headlines can be a list
+        headlines = { "◉", "○", "✸", "✿" },
+        -- or a function that receives the defaults and returns a list
+        headlines = function(default_list)
+          table.insert(default_list, "♥")
+          return default_list
+        end,
+        -- or false to disable the symbol. Works for all symbols
+        headlines = false,
+        -- or a table of tables that provide a name
+        -- and (optional) highlight group for each headline level
+        headlines = { 
+          { "◉", "MyBulletL1" },
+          { "○", "MyBulletL2" },
+          { "✸", "MyBulletL3" },
+          { "✿", "MyBulletL4" },
+        },
+        checkboxes = {
+          half = { "", "@org.checkbox.halfchecked" },
+          done = { "✓", "@org.keyword.done" },
+          todo = { "˟", "@org.keyword.todo" },
+        },
+      }
+    }
+    end
+  },
+
+  -- HACK: headlines.nvimプラグイン（見出しの装飾）
+  {
+    "lukas-reineke/headlines.nvim",
+    ft = { "org", "markdown" }, -- 必要なときだけロード
+    config = function()
+      -- ===== highlight 定義（bg維持 + 文字強調）=====
+    
+      --[[
+      -- Headline1: 赤系背景 + 明るい文字
+      vim.api.nvim_set_hl(0, "Headline1", {
+        bg = "#FF5F5F",
+        fg = "#FFFFFF", -- 白で最大可読性
+        bold = true,
+      })
+    
+      -- Headline2: 青系背景 + 明るい文字
+      vim.api.nvim_set_hl(0, "Headline2", {
+        bg = "#5FAFFF",
+        fg = "#FFFFFF", -- 背景が強いので白が安定
+        bold = true,
+      })
+    
+      -- CodeBlock: 緑系背景 + 落ち着いた暗文字（眩しさ回避）
+      vim.api.nvim_set_hl(0, "CodeBlock", {
+        bg = "#5FFF87",
+        fg = "#1C1C1C", -- ダーク文字でコードを読みやすく
+      })
+    
+      -- Dash: オレンジ強調（そのまま）
+      vim.api.nvim_set_hl(0, "Dash", {
+        fg = "#D19A66",
+        bold = true,
+      })
+      --]]
+    
+    
+      -- ===== headlines.nvim 設定 =====
+      --[[
+      require("headlines").setup({
+        org = {
+          -- headline_highlights = { "Headline1", "Headline2", "Headline3", "Headline4" },
+          -- codeblock_highlight = "CodeBlock",
+          -- dash_highlight = "Dash",
+        },
+      })
+      --]]
+    end,
+  },
+
+  -- HACK: snacks.nvimプラグイン（ダッシュボード）
+  {
+    "folke/snacks.nvim",
+    opts = {
+      dashboard = 
+      {
+        enabled = true,
+        sections = {
+          -- chafaで画像表示（要chafaインストール）
+          -- scoop install chafa でインストール可能
+          --[[
+          {
+          section = "terminal",
+          cmd = ("chafa %s/vim.png --format symbols --symbols vhalf --size 44x12")
+            :format(vim.fn.stdpath("config")),
+          height = 17,
+          padding = 1,
+          },
+          --]]
+
+          -- terminal の例
+          -- sleep が必要(おわりましたの邪魔な表示が出るため)
+          --[[
+          {
+            section = "terminal",
+            cmd = "echo 'Welcome to Neovim Org-mode Environment!' ; sleep 99999",
+            height = 3,
+          },
+          --]]
+
+          -- PowerShellで日付表示の例 lualineがあるからもういらない
+          --[[
+          {
+            section = "terminal",
+            cmd = "Get-Date -Format 'yyyy/MM/dd (ddd)'; sleep 99999",
+          },
+          --]]
+
+          {
+            title = pick_lines(string.format("%s", english_words_path), 5),
+
+          },
+          
+          {
+            title = "\n────────────────────────────\n",
+          },
+
+          -- セッションの設定例 section = の後の単語は小文字スタートな点に注意(例: section = projects)
+          --[[
+          {
+            title = "Projects",
+          },
+          {
+            section = "projects",
+          },
+          --]]
+
+          { section = "keys"},
+          { title = "Comands", pane = 2},
+          {
+            pane = 2,
+            icon = "",
+            key = "m",
+            desc = "org-mode",
+            action = function()
+              vim.cmd(string.format("cd %s", org_path))
+              vim.cmd("e notes.org")
+              vim.cmd("Neotree toggle")
+            end,
+          },
+          {
+            pane = 2,
+            icon = "",
+            key = "o",
+            desc = "obsidian",
+            action = function()
+              vim.cmd(string.format("cd %s", obsidian_path))
+              vim.cmd("Neotree toggle")
+            end,
+          },
+          {
+            pane = 2,
+            icon = "",
+            key = "j",
+            desc = "json focus log",
+            action = function()
+              vim.cmd("OpenFocusJsonInVSCode")
+            end,
+          }
+        },
+      },
+    },
+      config = function(_, opts)
+        require("snacks").setup(opts)
+    
+        vim.keymap.set("n", "<leader>dd", function()
+          require("snacks").dashboard()
+        end, { desc = "Open Snacks Dashboard" })
+      end,
+  },
+
+  -- HACK: neo-treeプラグイン（ファイルツリー）
+  {
+    "nvim-neo-tree/neo-tree.nvim",
+    branch = "v3.x",
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+      "MunifTanjim/nui.nvim",
+      "nvim-tree/nvim-web-devicons", -- optional, but recommended
+    },
+    lazy = false, -- neo-tree will lazily load itself
+    config = function()
+        vim.keymap.set("n", "<leader>e", ":Neotree toggle<CR>", { desc = "Toggle Neo-tree" })
+        require("neo-tree").setup({
+          filesystem = {
+            commands = {
+              delete = function(state)
+                local node = state.tree:get_node()
+                local path = node.path
+                vim.fn.system({ "trash", path })
+              end,
+            },
+          },
+        })
+    end,
+  },
+
+  -- HACK: auto-saveプラグイン（自動保存）
+  {
+  	"Pocco81/auto-save.nvim",
+  },
+
+  -- HACK: markdown-previewプラグイン
+  {
+  "iamcco/markdown-preview.nvim",
+  cmd = { "MarkdownPreviewToggle", "MarkdownPreview", "MarkdownPreviewStop" },
+  build = "cd app && yarn install",
+  init = function()
+    vim.g.mkdp_filetypes = { "markdown" }
+  end,
+  ft = { "markdown" },
+  keys = {
+    { "<leader>dm", "<cmd>MarkdownPreview<CR>", desc = "Markdown Preview", mode = "n" },
+  },
+
+  },
+
+  
+
+  -- HACK: lualineプラグイン（ステータスライン）
+  {
+    'nvim-lualine/lualine.nvim',
+    dependencies = { 'nvim-tree/nvim-web-devicons' },
+    config = function()
+      require('lualine').setup {
+        sections = {
+          lualine_a = {
+            {
+              'datetime',
+              -- options: default, us, uk, iso, or your own format string ("%H:%M", etc..)
+              style = '%m/%d (%a) %H:%M',
+            }
+          },
+        }
+      }
+    end,
+  },
+
+
+  -- HACK: which-keyプラグイン（キーマッピング補助）
+  {
+  "folke/which-key.nvim",
+    event = "VeryLazy",
+    config = function(_, opts)
+      local wk = require("which-key")
+      wk.setup(opts)
+      -- <leader>o 配下を "Org-mode Command" として表示させるなどの設定例
+      wk.add({
+        { "<leader>o", group = "󱞁 Org-mode Command" },
+        { "<leader>d", group = " .md / 󰡃 dashboard" },
+        { "<leader>t", group = " Tasks /  Terminal" },
+        { "<leader>c", group = " Config" },
+      })
+    end,
+  },
+
+  -- HACK: todo-commentsプラグイン（todoコメント強調表示）
+  {
+    "folke/todo-comments.nvim",
+    dependencies = { "nvim-lua/plenary.nvim" },
+  },
+
+  -- HACK: aerial.nvimプラグイン（コードアウトライン表示）
+  {
+    'stevearc/aerial.nvim',
+    opts = {},
+    -- Optional dependencies
+    dependencies = {
+       "nvim-treesitter/nvim-treesitter",
+       "nvim-tree/nvim-web-devicons"
+    },
+    config = function()
+      require("aerial").setup({
+        -- optionally use on_attach to set keymaps when aerial has attached to a buffer
+
+        --[[
+        -- カーソル移動はいらないのでコメントアウト
+        on_attach = function(bufnr)
+          -- Jump forwards/backwards with '{' and '}'
+          vim.keymap.set("n", "{", "<cmd>AerialPrev<CR>", { buffer = bufnr })
+          vim.keymap.set("n", "}", "<cmd>AerialNext<CR>", { buffer = bufnr })
+        end,
+        --]]
+      })
+      -- You probably also want to set a keymap to toggle aerial
+      vim.keymap.set("n", "<leader>a", "<cmd>AerialToggle!<CR>")
+    end,
+  },
+  
+    -- HACK: Treesitter
+  {
+    "nvim-treesitter/nvim-treesitter",
+    build = ":TSUpdate",
+    opts = {
+      ensure_installed = { "lua" , "python" }, -- 使う言語を追加
+      highlight = { enable = true },
+    },
+  },
+
+  -- HACK: LSP 設定
+  { 
+    "neovim/nvim-lspconfig",
+  
+    config = function()
+      vim.lsp.enable("pyright")
+      vim.lsp.enable("lua_ls")
+      --[[
+      -- deprecated
+      -- 新しいやり方は下記に書いてある
+      -- https://zenn.dev/vim_jp/articles/migrate-nvim-lspconfig-v0_11
+      -- 下記、一言でまとめ
+      -- setup関数の引数を返却するファイルを作成します。場所は.config/nvim/after/lsp/language_server_name.luaです。
+      require("lspconfig").pyright.setup{}  -- Python LSPサーバ
+      require("lspconfig").lua_ls.setup{}  -- Lua LSPサーバ
+      --]]
+    end,
+  },
+
+  -- HACK: LSPサーバ管理
+  { "mason-org/mason.nvim" ,
+    build = ":MasonUpdate",
+    config = function()
+      require("mason").setup()
+      vim.cmd("set signcolumn=no")
+    end,
+  },
+
+  -- HACK: mason-lspconfig連携プラグイン
+  {
+    "mason-org/mason-lspconfig.nvim",
+    opts = {},
+    dependencies = {
+        { "mason-org/mason.nvim", opts = {} },
+        "neovim/nvim-lspconfig",
+    },
+    config = function()
+      require("mason-lspconfig").setup({
+        ensure_installed = { "pyright", "lua_ls" }, -- 使うLSPサーバを追加
+      })
+      vim.cmd("set signcolumn=no")
+    end,
+  },
+
+  -- HACK: toggletermプラグイン（ターミナル切り替え）
+  {
+    'akinsho/toggleterm.nvim',
+    version = "*",
+    keys = {
+      { "<leader>tl", "<cmd>ToggleTerm size=8<CR>", desc = "Toggle Terminal", mode = "n" },
+    },
+    config = function()
+      require("toggleterm").setup{
+        open_mapping = [[<c-\>]],
+        direction = 'horizontal',
+        size = 15,
+      }
+    end,
+  },
+
+  -- 自作プラグインのお試し
+  {
+    "kkawasaki901/my-plugin",
+    config = function()
+      require("my-plugin").setup{}
+    end,
+
+  },
+  
+
+
+
+}, -- end of plugins table
+
+{
+  root = lazyroot, -- directory where plugins will be installed
+}
+)
+
+
